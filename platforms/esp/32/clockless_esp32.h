@@ -148,9 +148,15 @@ public:
 		
 	RMT.tx_lim_ch[mRMT_channel].limit = MAX_PULSES;
 
+	RMT.int_ena.val |= BIT(24 + mRMT_channel); // set ch*_tx_thr_event
+	RMT.int_ena.val |= BIT(mRMT_channel * 3); // set ch*_tx_end
+
 	// -- Allocate the interrupt, but don't enable it now
 	//    TBD: when do we deallocate it?
-	esp_intr_alloc(ETS_RMT_INTR_SOURCE, 0, handleInterrupt, this, &mRMT_intr_handle);
+	esp_err_t intr_status = esp_intr_alloc(ETS_RMT_INTR_SOURCE, ESP_INTR_FLAG_INTRDISABLED, handleInterrupt, this, &mRMT_intr_handle);
+        if (intr_status != ESP_OK) {
+            ESP_LOGE("fastled", "allocating RMT interrupt failed! error code: %hx", intr_status);
+        }
     }
 
     virtual uint16_t getMaxRefreshRate() const { return 400; }
@@ -171,8 +177,7 @@ protected:
 	copyToRmtBlock_half();
 
 	// -- Turn on the interrupts
-	RMT.int_ena.val |= BIT(mRMT_channel * 3);
-	RMT.int_ena.val |= BIT(mRMT_channel + 24);
+        esp_intr_enable(mRMT_intr_handle);
 
 	mTX_sem = xSemaphoreCreateBinary();
 
@@ -184,8 +189,7 @@ protected:
 	xSemaphoreTake(mTX_sem, portMAX_DELAY);
 
 	// -- Turn off the interrupts
-	RMT.int_ena.val &= ~(BIT(mRMT_channel * 3));
-	RMT.int_ena.val &= ~(BIT(mRMT_channel + 24));
+        esp_intr_disable(mRMT_intr_handle);
 
 	// -- When we get here, all of the data has been sent
 	vSemaphoreDelete(mTX_sem);
